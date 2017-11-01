@@ -12,29 +12,18 @@ import graph_json_io
 # -a # 阻尼系数,即α
 # -i # 最大迭代次数
 # -e # 确定迭代是否结束的参数,即ϵ
+# -f # file_path
 #################################
-
-def dictSum(dict1, dict2, datatype):
-    for item in dict2:
-        if item in dict1:
-            dict1[item] += dict2[item]
-        else:
-            dict1[item] = dict2[item]
-    return dict1
-
-dictSumOp = MPI.Op.Create(dictSum, commute=True)
-
-
 
 class Calculator:
     
-    def __init__(self, a_factor, max_iterate, end_factor,filename='weight_graph.g',isWeight=False):
+    def __init__(self, a_factor, max_iterate, end_factor,file_path,isWeight=False):
         
         self.a_factor = a_factor
         self.max_iterate = max_iterate
         self.end_factor = end_factor
         
-        self.columns = self.read_graph(filename,isWeight)
+        self.columns = self.read_graph(file_path,isWeight)
         
         self.height = self.columns.shape[0]
         
@@ -81,6 +70,7 @@ if __name__ == "__main__":
     a_factor=0
     max_iterate=100
     end_factor=0.00001
+    file_path = '../data/weight_graph.g'
     
     for op, value in opts:
         if op == "-a":
@@ -89,6 +79,8 @@ if __name__ == "__main__":
             max_iterate = int(value)
         elif op == "-e":
             end_factor = float(value)
+        elif op == "-f":
+            file_path = str(value)
             
-    node = Calculator(a_factor,max_iterate,end_factor)
+    node = Calculator(a_factor,max_iterate,end_factor,file_path)
     node.calculate()

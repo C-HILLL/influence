@@ -3,7 +3,6 @@
 import sys, getopt
 # Libraries
 import numpy as np
-#import scipy.sparse as sparse
 from mpi4py import MPI
 
 import graph_json_io
@@ -12,6 +11,7 @@ import graph_json_io
 # -a # 阻尼系数,即α
 # -i # 最大迭代次数
 # -e # 确定迭代是否结束的参数,即ϵ
+# -f # file_path
 #################################
 
 def dictSum(dict1, dict2, datatype):
@@ -28,7 +28,7 @@ dictSumOp = MPI.Op.Create(dictSum, commute=True)
 
 class Calculator:
     
-    def __init__(self, comm, a_factor, max_iterate, end_factor,filename='weight_graph.g',isWeight=False):
+    def __init__(self, comm, a_factor, max_iterate, end_factor,file_path,isWeight=False):
         
         self.comm = comm
         self.comm_rank = comm.Get_rank()
@@ -53,7 +53,7 @@ class Calculator:
         self.indices = None
         if self.comm_rank == 0:
             
-            self.full_columns = np.mat(self.read_graph(filename,isWeight))
+            self.full_columns = np.mat(self.read_graph(file_path,isWeight))
             self.height = self.full_columns.shape[0]
             self.full_rows = np.mat(np.ones((self.height,1)))/float(self.height)
             self.full_indices = range(self.height)
@@ -76,7 +76,7 @@ class Calculator:
     def read_graph(self,filename,isWeight):
         simulate_matrix = None
         if True:    #暂时只处理无权重的图
-            network = graph_json_io.read_json_file('../data/'+filename)
+            network = graph_json_io.read_json_file(file_path)
             nodes =  network.nodes()
             nodes.sort()
             simulate_matrix = [0]*len(nodes)
@@ -158,10 +158,11 @@ class Calculator:
 
 if __name__ == "__main__":
     
-    opts, _ = getopt.getopt(sys.argv[1:], "a:i:e:")
+    opts, _ = getopt.getopt(sys.argv[1:], "a:i:e:f:")
     a_factor=0
     max_iterate=100
     end_factor=0.00001
+    file_path = '../data/weight_graph.g'
     
     for op, value in opts:
         if op == "-a":
@@ -170,7 +171,9 @@ if __name__ == "__main__":
             max_iterate = int(value)
         elif op == "-e":
             end_factor = float(value)
+        elif op == "-f":
+            file_path = str(value)
             
     comm = MPI.COMM_WORLD
-    node = Calculator(comm,a_factor,max_iterate,end_factor)
+    node = Calculator(comm,a_factor,max_iterate,end_factor,file_path)
     node.calculate()
