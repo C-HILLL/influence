@@ -2,10 +2,11 @@
 # Utilities
 import sys, getopt
 # Libraries
-from scipy.stats import bernoulli
+from mpi4py import MPI
 import numpy as np
-import collections
+from scipy.stats import bernoulli
 import graph_json_io
+import collections
 
 #################################
 # -s # seed_num s
@@ -13,22 +14,54 @@ import graph_json_io
 # -f # file_path
 #################################
 
+"""
+#规约函数，取平均值
+def dictSum(dict1, dict2, datatype):
+    for item in dict2:
+        if item in dict1:
+            dict1[item] += dict2[item]
+        else:
+            dict1[item] = dict2[item]
+    return dict1
+
+dictSumOp = MPI.Op.Create(dictSum, commute=True)
+"""
+
+
 class Calculator:
     
-    def __init__(self, seed_num, simulate_time, file_path, isWeight=True):
+    def __init__(self, comm, seed_num, simulate_time, file_path, isWeight=True):
         
-        self.seed_num = seed_num
-        self.simulate_time = simulate_time        
-        self.network = self.read_graph(file_path,isWeight)
+        self.comm = comm
+        self.comm_rank = comm.Get_rank()
+        self.comm_size = comm.Get_size()
+        
+        self.network = None
         self.simulate_data = {}
+        self.simulate_time_per_node = simulate_time/(self.comm_size-1)+1
+        self.seed_nodes = []
+        self.nodes_influence = 0
         
+        if self.comm_rank == 0:
+            self.seed_num = seed_num
+            self.simulate_time = self.simulate_time_per_node*(self.comm_size-1)
+            self.network = self.read_graph(file_path,isWeight)
+            
+        # master rank
+        self.master = 0
+        
+        self.network = comm.bcast(self.network if self.comm_rank == 0 else None, root=0)
+        print self.comm_rank,self.network.number_of_nodes(),self.simulate_time_per_node
+        #if self.comm_rank > 0:
+        #    print self.influence_simulate_IC([],[0],self.simulate_time_per_node)
+            
     def read_graph(self,file_path,isWeight):
         
         if True:    #暂时只处理有概率权重图
             return graph_json_io.read_json_file(file_path)
-        
 
-    #单一节点的数据模拟
+
+        #单一节点的数据模拟
     def influence_simulate_IC(self,A,B,s_time):
         """
         A:上轮激活节点
@@ -113,29 +146,40 @@ class Calculator:
 
     def CELF(self):
         
-        SEED=[]
-        candidate_list = []
-        
-        # init candidate_list
-        for n in self.network.nodes():
-            increase = self.influence_simulate_IC([],[n],self.simulate_time)/float(self.simulate_time)
-            candidate_list.append([n,increase,0])
-        candidate_list.sort(key=lambda x:x[1],reverse=True)
-        
-        #先使用自带排序方法，后续考虑是否优化
-        seed_value = 0
-        for i in range(seed_num):
-            while candidate_list[0][2]<i:
-                candidate_list[0][1] = self.influence_simulate_IC([],SEED+[candidate_list[0][0]],self.simulate_time)/float(self.simulate_time)-seed_value
-                candidate_list[0][2]=i
-                candidate_list.sort(key=lambda x: x[1], reverse=True)
-        
-            SEED.append(candidate_list[0][0])
-            seed_value += candidate_list[0][1]
-            del candidate_list[0]
-            print SEED,seed_value
-        return SEED  
-
+        if self.comm_rank > 0:
+            while True:
+                B = comm.bcast(self.seed_nodes if self.comm_rank == 0 else None, root=0)
+                self.nodes_influence = self.influence_simulate_IC([],B,self.simulate_time_per_node)
+                self.comm.reduce(self.nodes_influence, root=0,op=MPI.SUM)
+            
+        if self.comm_rank == 0:
+            SEED=[]
+            candidate_list = []
+            # init candidate_list
+            for n in self.network.nodes():
+                self.seed_nodes = [n]
+                self.comm.bcast(self.seed_nodes if self.comm_rank == 0 else None, root=0)
+                increase = self.comm.reduce(self.nodes_influence, root=0,op=MPI.SUM)/float(self.simulate_time)
+                candidate_list.append([n,increase,0])
+            candidate_list.sort(key=lambda x:x[1],reverse=True)
+            
+            #先使用自带排序方法，后续考虑是否优化
+            seed_value = 0
+            for i in range(seed_num):
+                while candidate_list[0][2]<i:
+                    self.seed_nodes = SEED+[candidate_list[0][0]]
+                    self.comm.bcast(self.seed_nodes if self.comm_rank == 0 else None, root=0)
+                    candidate_list[0][1] = self.comm.reduce(self.nodes_influence, root=0,op=MPI.SUM)/float(self.simulate_time)-seed_value
+                    candidate_list[0][2]=i
+                    candidate_list.sort(key=lambda x: x[1], reverse=True)
+            
+                SEED.append(candidate_list[0][0])
+                seed_value += candidate_list[0][1]
+                del candidate_list[0]
+                print SEED,seed_value 
+                
+        self.comm.Abort()
+    
 if __name__ == "__main__":
     
     opts, _ = getopt.getopt(sys.argv[1:], "s:t:f:")
@@ -151,5 +195,6 @@ if __name__ == "__main__":
         elif op == "-f":
             file_path = str(value)
             
-    node = Calculator(seed_num,simulate_time,file_path)
+    comm = MPI.COMM_WORLD
+    node = Calculator(comm,seed_num,simulate_time,file_path)
     node.CELF()
