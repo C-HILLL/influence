@@ -46,7 +46,7 @@ class Calculator:
     def read_graph(self,filename,isWeight):
         simulate_matrix = None
         if True:    #暂时只处理无权重的图
-            network = graph_json_io.read_json_file('data/'+filename)
+            network = graph_json_io.read_json_file('../data/'+filename)
             nodes =  network.nodes()
             nodes.sort()
             simulate_matrix = [0]*len(nodes)
